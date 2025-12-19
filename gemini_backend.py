@@ -7,13 +7,23 @@ import requests
 import fitz  # PyMuPDF
 import os
 
+import os
+from dotenv import load_dotenv
+
 app = Flask(__name__)
 CORS(app)
 
+# Load environment variables from .env file (for local development)
+load_dotenv()
+
 # --- CONFIGURATION ---
-# It's better to use environment variables for keys in production, 
-# but for now we keep the key here as per previous code.
-API_KEY = ""
+# Get API Key from Environment Variable (Safe for GitHub)
+API_KEY = os.environ.get("GEMINI_API_KEY")
+
+if not API_KEY:
+    # Fallback to a warning or error if not found (e.g. in production if not set)
+    print("WARNING: GEMINI_API_KEY not found in environment variables.")
+
 genai.configure(api_key=API_KEY)
 
 # Use a consistent model
