@@ -13,7 +13,7 @@ CORS(app)
 # --- CONFIGURATION ---
 # It's better to use environment variables for keys in production, 
 # but for now we keep the key here as per previous code.
-API_KEY = "AIzaSyBUqB2SVmlrjyAgRdrDf0k73EbLZJqP3q4"
+API_KEY = ""
 genai.configure(api_key=API_KEY)
 
 # Use a consistent model
