@@ -4,3 +4,4 @@ google-generativeai
 requests
 pymupdf
 gunicorn
+dotenv
