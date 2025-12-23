@@ -34,7 +34,7 @@ if not API_KEY:
     print("WARNING: GEMINI_API_KEY not found in environment variables.")
 genai.configure(api_key=API_KEY)
 
-MODEL_NAME = 'gemini-1.5-flash' 
+MODEL_NAME = 'gemini-2.5-flash' 
 
 # --- Google Drive Init ---
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
