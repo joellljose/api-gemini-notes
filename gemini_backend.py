@@ -34,7 +34,7 @@ if not API_KEY:
     print("WARNING: GEMINI_API_KEY not found in environment variables.")
 genai.configure(api_key=API_KEY)
 
-MODEL_NAME = 'gemini-2.5-flash' 
+MODEL_NAME = 'gemini-1.5-flash' 
 
 # --- Google Drive Init ---
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
@@ -56,6 +56,12 @@ def upload_file_to_drive(file_obj, filename, mime_type='application/pdf'):
         raise Exception("Google Drive Service Unreachable")
 
     file_metadata = {'name': filename}
+    
+    # Check for specific folder to upload to (Critical for Service Accounts with no quota)
+    folder_id = os.environ.get("DRIVE_FOLDER_ID")
+    if folder_id:
+        file_metadata['parents'] = [folder_id]
+
     media = MediaIoBaseUpload(file_obj, mimetype=mime_type, resumable=True)
     
     file = service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink, webContentLink').execute()
