@@ -1,9 +1,7 @@
 flask
 flask-cors
-openai
+google-generativeai
 requests
 pymupdf
 gunicorn
 python-dotenv
-firebase
-firebase-admin
