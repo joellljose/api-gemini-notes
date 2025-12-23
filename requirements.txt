@@ -6,3 +6,4 @@ pymupdf
 gunicorn
 python-dotenv
 firebase
+firebase-admin
