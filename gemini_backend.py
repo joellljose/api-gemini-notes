@@ -44,7 +44,7 @@ if not API_KEY:
     print("WARNING: GEMINI_API_KEY not found in environment variables.")
 genai.configure(api_key=API_KEY)
 
-MODEL_NAME = 'gemini-1.5-flash-001' 
+MODEL_NAME = 'gemini-2.5-flash' 
 
 import cloudinary
 import cloudinary.uploader
