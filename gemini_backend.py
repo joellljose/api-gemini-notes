@@ -1,5 +1,5 @@
 import google.generativeai as genai
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import json
 import re
@@ -7,21 +7,31 @@ import requests
 import fitz  
 import os
 import io
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 import firebase_admin
 from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
 CORS(app)
 
-load_dotenv()
+# Robust Path Handling
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent
+ENV_PATH = BASE_DIR / '.env'
+CREDS_PATH = BASE_DIR / 'serviceAccountKey.json'
 
-# --- Firebase Init ---
+load_dotenv(dotenv_path=ENV_PATH)
+print(f"Loading .env from: {ENV_PATH}")
+
+# Ensure upload directory exists
+UPLOAD_FOLDER = BASE_DIR / 'static' / 'notes'
+UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+print(f"Uploads will be saved to: {UPLOAD_FOLDER}")
+
+# --- Firebase Init (For Firestore Only) ---
 try:
     if not firebase_admin._apps:
-        cred = credentials.Certificate("serviceAccountKey.json")
+        cred = credentials.Certificate(str(CREDS_PATH))
         firebase_admin.initialize_app(cred)
     print("Firebase Admin Initialized")
 except Exception as e:
@@ -34,46 +44,48 @@ if not API_KEY:
     print("WARNING: GEMINI_API_KEY not found in environment variables.")
 genai.configure(api_key=API_KEY)
 
-MODEL_NAME = 'gemini-2.5-flash' 
+MODEL_NAME = 'gemini-1.5-flash-001' 
 
-# --- Google Drive Init ---
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
+import cloudinary
+import cloudinary.uploader
 
-def get_drive_service():
-    creds = None
+# --- Cloudinary Init ---
+CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY")
+CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET")
+
+if CLOUDINARY_CLOUD_NAME:
+    cloudinary.config( 
+        cloud_name = CLOUDINARY_CLOUD_NAME, 
+        api_key = CLOUDINARY_API_KEY, 
+        api_secret = CLOUDINARY_API_SECRET,
+        secure = True
+    )
+    print("Cloudinary Configured")
+else:
+    print("WARNING: Cloudinary credentials not found in env")
+
+def upload_to_cloudinary(file_obj, filename):
     try:
-        from google.oauth2 import service_account
-        creds = service_account.Credentials.from_service_account_file(
-            'serviceAccountKey.json', scopes=SCOPES)
-        return build('drive', 'v3', credentials=creds)
+        # Upload using the internal file object
+        # resource_type="auto" handles pdfs, images, etc.
+        # public_id allows us to specify a filename (optional)
+        
+        print(f"Uploading {filename} to Cloudinary...")
+        response = cloudinary.uploader.upload(
+            file_obj, 
+            resource_type = "auto",
+            folder = "ktu_notes",
+            public_id = filename.split('.')[0] # Use filename without extension as ID
+        )
+        
+        web_url = response.get("secure_url")
+        print(f"File uploaded to Cloudinary: {web_url}")
+        return web_url, response.get("public_id")
+
     except Exception as e:
-        print(f"Drive Auth Error: {e}")
-        return None
-
-def upload_file_to_drive(file_obj, filename, mime_type='application/pdf'):
-    service = get_drive_service()
-    if not service:
-        raise Exception("Google Drive Service Unreachable")
-
-    file_metadata = {'name': filename}
-    
-    # Check for specific folder to upload to (Critical for Service Accounts with no quota)
-    folder_id = os.environ.get("DRIVE_FOLDER_ID")
-    if folder_id:
-        file_metadata['parents'] = [folder_id]
-
-    media = MediaIoBaseUpload(file_obj, mimetype=mime_type, resumable=True)
-    
-    file = service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink, webContentLink').execute()
-    
-    # Make it readable by anyone with the link
-    try:
-        permission = {'type': 'anyone', 'role': 'reader'}
-        service.permissions().create(fileId=file.get('id'), body=permission).execute()
-    except Exception as e:
-        print(f"Permission Error: {e}")
-
-    return file.get('webViewLink'), file.get('id')
+        print(f"Cloudinary Upload Error: {e}")
+        raise e
 
 def extract_text_from_pdf_stream(file_stream):
     try:
@@ -131,6 +143,7 @@ def verify_note():
                 "summary": "Short summary of the content"
             }}
             """
+            
             try:
                 response = model.generate_content(prompt)
                 clean_json = re.sub(r'```json|```', '', response.text).strip()
@@ -143,23 +156,25 @@ def verify_note():
                 status = "pending"
                 reason = "AI Processing Error, marked as pending for human review."
 
-        # Upload to Drive
-        drive_link, file_id = upload_file_to_drive(io.BytesIO(file_content), file.filename)
+        # Upload to Cloudinary
+        print("Uploading to Cloudinary...")
+        file.seek(0) 
+        file_url, file_path_id = upload_to_cloudinary(io.BytesIO(file_content), file.filename)
         
         return jsonify({
             "status": status,
             "reason": reason,
             "summary": ai_summary,
-            "url": drive_link,
-            "fileId": file_id
+            "url": file_url,
+            "fileId": file_path_id
         })
 
     except Exception as e:
         print(f"Verify Note Error: {e}")
         return jsonify({"error": str(e)}), 500
 
-# Endpoint to extract text from an existing Drive URL (used by quiz generation)
-def extract_text_from_drive(url):
+# Endpoint to extract text from an existing URL (used by quiz generation)
+def extract_text_from_url(url):
     headers = {
         'User-Agent': 'Mozilla/5.0'
     }
@@ -190,7 +205,7 @@ def generate_quiz():
             source_text = input_text
         elif pdf_url and pdf_url.strip():
             print(f"Generating quiz from PDF URL: {pdf_url}...")
-            source_text = extract_text_from_drive(pdf_url)
+            source_text = extract_text_from_url(pdf_url)
         else:
             return jsonify({"error": "No text or PDF URL provided"}), 400
         
