@@ -38,13 +38,47 @@ except Exception as e:
     print(f"Warning: Firebase Admin not initialized: {e}")
 # ---------------------
 
-API_KEY = os.environ.get("GEMINI_API_KEY")
+import random
 
-if not API_KEY:
-    print("WARNING: GEMINI_API_KEY not found in environment variables.")
-genai.configure(api_key=API_KEY)
+API_KEYS = [
+    os.environ.get("GEMINI_API_KEY_1"),
+    os.environ.get("GEMINI_API_KEY_2"),
+    os.environ.get("GEMINI_API_KEY_3"),
+    os.environ.get("GEMINI_API_KEY_4"),
+]
+# Filter out None values just in case
+API_KEYS = [k for k in API_KEYS if k]
 
-MODEL_NAME = 'gemini-2.5-flash' 
+if not API_KEYS:
+    print("WARNING: No GEMINI_API_KEYS found in environment variables.")
+
+MODEL_NAME = 'gemini-1.5-flash-001'
+
+def get_configured_model():
+    """
+    Selects a random API key, configures GenAI, increments usage stats, 
+    and returns the model instance.
+    """
+    if not API_KEYS:
+        raise Exception("No API Keys available.")
+    
+    selected_key_index = random.randint(0, len(API_KEYS) - 1)
+    selected_key = API_KEYS[selected_key_index]
+    key_name = f"key_{selected_key_index + 1}"
+    
+    # Configure GenAI with the selected key
+    genai.configure(api_key=selected_key)
+    
+    # Track usage in Firestore
+    try:
+        db = firestore.client()
+        stats_ref = db.collection('stats').document('api_usage')
+        stats_ref.set({key_name: firestore.Increment(1)}, merge=True)
+        print(f"Using {key_name} ... Usage tracked.")
+    except Exception as e:
+        print(f"Error tracking API usage: {e}")
+        
+    return genai.GenerativeModel(model_name=MODEL_NAME) 
 
 import cloudinary
 import cloudinary.uploader
@@ -124,7 +158,7 @@ def verify_note():
         ai_summary = "No summary generated."
         
         if extracted_text.strip():
-            model = genai.GenerativeModel(model_name=MODEL_NAME)
+            model = get_configured_model()
             prompt = f"""
             Act as a Syllabus Validator for an Engineering Course.
             Subject: {subject}
@@ -268,7 +302,7 @@ def generate_summary():
              return jsonify({"error": "Extracted text is empty"}), 400
 
         # 2. Call Gemini
-        model = genai.GenerativeModel(model_name=MODEL_NAME)
+        model = get_configured_model()
         prompt = f"""
         Act as an academic expert. 
         Summarize the following text into 3-5 concise, high-value bullet points suitable for quick revision.
@@ -293,7 +327,7 @@ def participatory_start():
         data = request.get_json()
         input_text = data.get('text', '')
         
-        model = genai.GenerativeModel(model_name=MODEL_NAME)
+        model = get_configured_model()
         
         prompt = f"""
         You are a Participatory Learning Facilitator for KTU Engineering students.
@@ -328,7 +362,7 @@ def participatory_evaluate():
         student_question = data.get('question', '')
         challenge_context = data.get('challenge', '')
 
-        model = genai.GenerativeModel(model_name=MODEL_NAME)
+        model = get_configured_model()
 
         prompt = f"""
         Act as a Facilitator.
