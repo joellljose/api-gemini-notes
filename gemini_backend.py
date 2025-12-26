@@ -67,16 +67,18 @@ else:
 
 def upload_to_cloudinary(file_obj, filename):
     try:
-        # Upload using the internal file object
-        # resource_type="auto" handles pdfs, images, etc.
-        # public_id allows us to specify a filename (optional)
+        # Sanitize filename: replace spaces with underscores, keep alphanumeric and dots
+        clean_filename = "".join([c if c.isalnum() or c in "._-" else "_" for c in filename])
         
-        print(f"Uploading {filename} to Cloudinary...")
+        # Determine resource type: 'raw' for PDFs to avoid image transformation strictness, 'auto' otherwise
+        res_type = "raw" if filename.lower().endswith(".pdf") else "auto"
+
+        print(f"Uploading {clean_filename} to Cloudinary as {res_type}...")
         response = cloudinary.uploader.upload(
             file_obj, 
-            resource_type = "auto",
+            resource_type = res_type,
             folder = "ktu_notes",
-            public_id = filename.split('.')[0] # Use filename without extension as ID
+            public_id = clean_filename.split('.')[0] 
         )
         
         web_url = response.get("secure_url")
@@ -246,6 +248,43 @@ def generate_quiz():
 
     except Exception as e:
         print(f"CRITICAL ERROR: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/generate-summary', methods=['POST'])
+def generate_summary():
+    try:
+        data = request.get_json()
+        pdf_url = data.get('url', '')
+        
+        if not pdf_url:
+             return jsonify({"error": "No PDF URL provided"}), 400
+
+        print(f"Generating summary for: {pdf_url}...")
+        
+        # 1. Extract Text
+        source_text = extract_text_from_url(pdf_url)
+        
+        if not source_text.strip():
+             return jsonify({"error": "Extracted text is empty"}), 400
+
+        # 2. Call Gemini
+        model = genai.GenerativeModel(model_name=MODEL_NAME)
+        prompt = f"""
+        Act as an academic expert. 
+        Summarize the following text into 3-5 concise, high-value bullet points suitable for quick revision.
+        Focus on key concepts, definitions, and formulas.
+        
+        Text:
+        {source_text[:15000]}
+        """
+        
+        response = model.generate_content(prompt)
+        summary = response.text.strip()
+        
+        return jsonify({"summary": summary})
+
+    except Exception as e:
+        print(f"Summary Generation Error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/participatory-start', methods=['POST'])
