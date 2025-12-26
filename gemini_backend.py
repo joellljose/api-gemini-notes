@@ -45,6 +45,7 @@ API_KEYS = [
     os.environ.get("GEMINI_API_KEY_2"),
     os.environ.get("GEMINI_API_KEY_3"),
     os.environ.get("GEMINI_API_KEY_4"),
+    os.environ.get("GEMINI_API_KEY"), # Fallback for legacy support
 ]
 # Filter out None values just in case
 API_KEYS = [k for k in API_KEYS if k]
@@ -52,7 +53,7 @@ API_KEYS = [k for k in API_KEYS if k]
 if not API_KEYS:
     print("WARNING: No GEMINI_API_KEYS found in environment variables.")
 
-MODEL_NAME = 'gemini-1.5-flash-001'
+MODEL_NAME = 'gemini-2.5-flash'
 
 def get_configured_model():
     """
