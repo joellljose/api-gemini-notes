@@ -155,56 +155,74 @@ def verify_note():
         file.save(str(temp_path))
         print(f"Saved temp file to: {temp_path}")
 
-        # AI Verification
+        # Check Global Settings for AI Verification
+        ai_enabled = True # Default
+        try:
+            db = firestore.client()
+            settings_ref = db.collection('config').document('settings')
+            doc = settings_ref.get()
+            if doc.exists:
+                ai_enabled = doc.to_dict().get('enableAiVerification', True)
+        except Exception as db_e:
+            print(f"Error fetching settings: {db_e}. Defaulting to AI ON.")
+
+        extracted_text = ""
         status = "pending"
         reason = "AI Verification Failed or Skipped"
         ai_summary = "No summary generated."
-        
-        try:
-            # Extract text using file path (memory efficient)
-            with fitz.open(temp_path) as doc:
-                extracted_text = ""
-                for page in doc:
-                    extracted_text += page.get_text()
-            
-            if extracted_text.strip():
-                model = get_configured_model()
-                prompt = f"""
-                Act as a Syllabus Validator for KTU Engineering Course.
-                Subject: {subject}
-                Module: {module}
+
+        # If AI is disabled, skip extraction and verification
+        if not ai_enabled:
+             print("AI Verification is DISABLED by Admin. Skipping...")
+             status = "pending"
+             reason = "Manual Mode Active (AI Verification Disabled)"
+             ai_summary = "Pending Admin Review"
+        else:
+            # AI Verification Logic
+            try:
+                # Extract text using file path (memory efficient)
+                with fitz.open(temp_path) as doc:
+                    for page in doc:
+                        extracted_text += page.get_text()
                 
-                Content of the Note:
-                {extracted_text[:10000]}
-                
-                Task:
-                1. Verify if the content is relevant to the Subject and Module provided.
-                2. If relevant, status is "approved". If completely irrelevant (spam, wrong subject), status is "rejected". If unsure or partially correct, status is "pending".
-                3. Generate a short 2-sentence summary of the note.
-                
-                Return ONLY JSON:
-                {{
-                    "status": "approved" | "rejected" | "pending",
-                    "reason": "Explanation for the decision",
-                    "summary": "Short summary of the content"
-                }}
-                """
-                
-                try:
-                    response = model.generate_content(prompt)
-                    clean_json = re.sub(r'```json|```', '', response.text).strip()
-                    ai_data = json.loads(clean_json)
-                    status = ai_data.get('status', 'pending')
-                    reason = ai_data.get('reason', 'AI Review')
-                    ai_summary = ai_data.get('summary', 'Summary not found')
-                except Exception as ai_e:
-                    print(f"AI Error: {ai_e}")
-                    status = "pending"
-                    reason = "AI Processing Error, marked as pending for human review."
-        except Exception as e:
-            print(f"Extraction Error: {e}")
-            # If extraction fails (not a PDF?), we can still upload or fail
-            # For now, continue to upload but mark as pending
+                if extracted_text.strip():
+                    model = get_configured_model()
+                    prompt = f"""
+                    Act as a Syllabus Validator for KTU Engineering Course.
+                    Subject: {subject}
+                    Module: {module}
+                    
+                    Content of the Note:
+                    {extracted_text[:10000]}
+                    
+                    Task:
+                    1. Verify if the content is relevant to the Subject and Module provided.
+                    2. If relevant, status is "approved". If completely irrelevant (spam, wrong subject), status is "rejected". If unsure or partially correct, status is "pending".
+                    3. Generate a short 2-sentence summary of the note.
+                    
+                    Return ONLY JSON:
+                    {{
+                        "status": "approved" | "rejected" | "pending",
+                        "reason": "Explanation for the decision",
+                        "summary": "Short summary of the content"
+                    }}
+                    """
+                    
+                    try:
+                        response = model.generate_content(prompt)
+                        clean_json = re.sub(r'```json|```', '', response.text).strip()
+                        ai_data = json.loads(clean_json)
+                        status = ai_data.get('status', 'pending')
+                        reason = ai_data.get('reason', 'AI Review')
+                        ai_summary = ai_data.get('summary', 'Summary not found')
+                    except Exception as ai_e:
+                        print(f"AI Error: {ai_e}")
+                        status = "pending"
+                        reason = "AI Processing Error, marked as pending for human review."
+            except Exception as e:
+                print(f"Extraction Error: {e}")
+                # If extraction fails (not a PDF?), we can still upload or fail
+                # For now, continue to upload but mark as pending
 
         # Upload to Cloudinary
         print("Uploading to Cloudinary...")
