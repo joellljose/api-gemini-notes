@@ -431,6 +431,38 @@ def participatory_evaluate():
     except Exception as e:
         print(f"Participatory Eval Error: {e}")
         return jsonify({"error": str(e)}), 500
+
+# --- Admin Notification Endpoint ---
+from firebase_admin import messaging
+
+@app.route('/send-notification', methods=['POST'])
+def send_notification():
+    try:
+        data = request.get_json()
+        title = data.get('title', 'Notification')
+        body = data.get('body', '')
+
+        if not body:
+            return jsonify({"error": "Body is required"}), 400
+
+        # Create message for 'all_users' topic
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title=title,
+                body=body,
+            ),
+            topic='all_users',
+        )
+
+        # Send
+        response = messaging.send(message)
+        print(f"Successfully sent message: {response}")
+        
+        return jsonify({"success": True, "messageId": response})
+
+    except Exception as e:
+        print(f"Notification Error: {e}")
+        return jsonify({"error": str(e)}), 500
 # --- Telegram Monitoring & Alerts ---
 import psutil
 import time
