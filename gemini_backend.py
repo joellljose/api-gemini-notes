@@ -149,55 +149,76 @@ def verify_note():
         if file.filename == '':
             return jsonify({"error": "No selected file"}), 400
 
-        file_content = file.read()
-        file_stream = io.BytesIO(file_content)
+        # Save to temp file to avoid RAM OOM on Render
+        filename = file.filename
+        temp_path = UPLOAD_FOLDER / filename
+        file.save(str(temp_path))
+        print(f"Saved temp file to: {temp_path}")
 
         # AI Verification
-        extracted_text = extract_text_from_pdf_stream(io.BytesIO(file_content))
         status = "pending"
         reason = "AI Verification Failed or Skipped"
         ai_summary = "No summary generated."
         
-        if extracted_text.strip():
-            model = get_configured_model()
-            prompt = f"""
-            Act as a Syllabus Validator for an Engineering Course.
-            Subject: {subject}
-            Module: {module}
+        try:
+            # Extract text using file path (memory efficient)
+            with fitz.open(temp_path) as doc:
+                extracted_text = ""
+                for page in doc:
+                    extracted_text += page.get_text()
             
-            Content of the Note:
-            {extracted_text[:10000]}
-            
-            Task:
-            1. Verify if the content is relevant to the Subject and Module provided.
-            2. If relevant, status is "approved". If completely irrelevant (spam, wrong subject), status is "rejected". If unsure or partially correct, status is "pending".
-            3. Generate a short 2-sentence summary of the note.
-            
-            Return ONLY JSON:
-            {{
-                "status": "approved" | "rejected" | "pending",
-                "reason": "Explanation for the decision",
-                "summary": "Short summary of the content"
-            }}
-            """
-            
-            try:
-                response = model.generate_content(prompt)
-                clean_json = re.sub(r'```json|```', '', response.text).strip()
-                ai_data = json.loads(clean_json)
-                status = ai_data.get('status', 'pending')
-                reason = ai_data.get('reason', 'AI Review')
-                ai_summary = ai_data.get('summary', 'Summary not found')
-            except Exception as ai_e:
-                print(f"AI Error: {ai_e}")
-                status = "pending"
-                reason = "AI Processing Error, marked as pending for human review."
+            if extracted_text.strip():
+                model = get_configured_model()
+                prompt = f"""
+                Act as a Syllabus Validator for KTU Engineering Course.
+                Subject: {subject}
+                Module: {module}
+                
+                Content of the Note:
+                {extracted_text[:10000]}
+                
+                Task:
+                1. Verify if the content is relevant to the Subject and Module provided.
+                2. If relevant, status is "approved". If completely irrelevant (spam, wrong subject), status is "rejected". If unsure or partially correct, status is "pending".
+                3. Generate a short 2-sentence summary of the note.
+                
+                Return ONLY JSON:
+                {{
+                    "status": "approved" | "rejected" | "pending",
+                    "reason": "Explanation for the decision",
+                    "summary": "Short summary of the content"
+                }}
+                """
+                
+                try:
+                    response = model.generate_content(prompt)
+                    clean_json = re.sub(r'```json|```', '', response.text).strip()
+                    ai_data = json.loads(clean_json)
+                    status = ai_data.get('status', 'pending')
+                    reason = ai_data.get('reason', 'AI Review')
+                    ai_summary = ai_data.get('summary', 'Summary not found')
+                except Exception as ai_e:
+                    print(f"AI Error: {ai_e}")
+                    status = "pending"
+                    reason = "AI Processing Error, marked as pending for human review."
+        except Exception as e:
+            print(f"Extraction Error: {e}")
+            # If extraction fails (not a PDF?), we can still upload or fail
+            # For now, continue to upload but mark as pending
 
         # Upload to Cloudinary
         print("Uploading to Cloudinary...")
-        file.seek(0) 
-        file_url, file_path_id = upload_to_cloudinary(io.BytesIO(file_content), file.filename)
+        # Upload from path
+        file_url, file_path_id = upload_to_cloudinary(str(temp_path), filename) # Cloudinary python SDK supports path string
         
+        # Clean up temp file
+        try:
+            if temp_path.exists():
+                os.remove(temp_path)
+                print(f"Removed temp file: {temp_path}")
+        except Exception as cleanup_e:
+            print(f"Cleanup Error: {cleanup_e}")
+
         return jsonify({
             "status": status,
             "reason": reason,
@@ -208,6 +229,11 @@ def verify_note():
 
     except Exception as e:
         print(f"Verify Note Error: {e}")
+        # Attempt minimal cleanup
+        try:
+             if 'temp_path' in locals() and temp_path.exists():
+                 os.remove(temp_path)
+        except: pass
         return jsonify({"error": str(e)}), 500
 
 # Endpoint to extract text from an existing URL (used by quiz generation)
