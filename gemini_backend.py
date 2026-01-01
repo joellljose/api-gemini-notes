@@ -39,14 +39,14 @@ except Exception as e:
 # ---------------------
 
 import random
-
-API_KEYS = [
-    os.environ.get("GEMINI_API_KEY_1"),
-    os.environ.get("GEMINI_API_KEY_2"),
-    os.environ.get("GEMINI_API_KEY_3"),
-    os.environ.get("GEMINI_API_KEY_4"),
-    os.environ.get("GEMINI_API_KEY"), # Fallback for legacy support
-]
+API_KEYS = os.environ.get("GEMINI_API")
+# API_KEYS = [
+#     os.environ.get("GEMINI_API_KEY_1"),
+#     os.environ.get("GEMINI_API_KEY_2"),
+#     os.environ.get("GEMINI_API_KEY_3"),
+#     os.environ.get("GEMINI_API_KEY_4"),
+#     os.environ.get("GEMINI_API_KEY"), # Fallback for legacy support
+# ]
 # Filter out None values just in case
 API_KEYS = [k for k in API_KEYS if k]
 
